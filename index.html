@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV Face & Person Extractor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        .face-card:hover .actions { opacity: 1; }
+        .face-card.selected { border-color: #f97316; ring: 4px; ring-color: #f97316; transform: scale(0.95); }
+        .face-card.selected .select-badge { display: flex; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .gradient-border {
+            position: relative;
+            border-radius: 1rem;
+            background: linear-gradient(to right, #f97316, #fbbf24);
+            padding: 1px;
+        }
+        .inner-bg { background: #1e293b; border-radius: 0.95rem; }
+        
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #f97316;
+            cursor: pointer;
+            border: 2px solid #fff;
+        }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-slate-200 min-h-screen font-sans">
+
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <header class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+                <h1 class="text-4xl font-black tracking-tighter text-white uppercase">
+                    Face<span class="text-orange-500">Capture</span> AI
+                </h1>
+                <p class="text-slate-400 font-medium">Интеллектуальная экстракция лиц из систем видеонаблюдения</p>
+            </div>
+            <div id="aiIndicator" class="flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-full border border-slate-700 text-[10px] font-bold uppercase tracking-widest text-slate-400 transition-all">
+                <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                Загрузка нейросети...
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <div class="space-y-6">
+                <div class="gradient-border">
+                    <div class="inner-bg p-6">
+                        <h2 class="text-xs font-black uppercase text-orange-500 mb-4 tracking-widest">Шаг 1: Видеофайл</h2>
+                        <label class="flex flex-col items-center justify-center w-full h-40 border-2 border-slate-700 border-dashed rounded-xl cursor-pointer hover:bg-slate-800 transition-colors group">
+                            <div class="flex flex-col items-center justify-center text-center px-4">
+                                <svg class="w-10 h-10 mb-2 text-slate-500 group-hover:text-orange-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                                <span class="text-sm font-bold text-slate-400 group-hover:text-slate-200">Выбрать видео</span>
+                                <span class="text-[10px] text-slate-500 mt-1">MP4, MOV, WEBM</span>
+                            </div>
+                            <input id="videoInput" type="file" class="hidden" accept="video/*" />
+                        </label>
+                        <div id="videoMeta" class="mt-4 hidden p-3 bg-black/20 rounded-lg text-xs space-y-1">
+                            <div class="flex justify-between"><span class="text-slate-500">Разрешение:</span> <span id="metaRes" class="text-white font-mono"></span></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Длительность:</span> <span id="metaDur" class="text-white font-mono"></span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                    <h2 class="text-xs font-black uppercase text-slate-400 mb-6 tracking-widest text-center">Шаг 2: Настройка AI</h2>
+                    
+                    <div class="space-y-6">
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span>Чувствительность</span>
+                                <span id="confVal" class="text-orange-500">0.3</span>
+                            </div>
+                            <input type="range" id="confSlider" min="0.1" max="0.8" step="0.05" value="0.3" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2 uppercase tracking-tighter">
+                                <span>Шаг обработки</span>
+                            </div>
+                            <select id="stepSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-orange-500 outline-none appearance-none">
+                                <option value="0.033">Каждый кадр (Max)</option>
+                                <option value="0.1" selected>0.1 сек (Высокая)</option>
+                                <option value="0.25">0.25 сек (Оптимально)</option>
+                                <option value="0.5">0.5 сек (Норма)</option>
+                                <option value="1.0">1.0 сек (Быстро)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span>Точность (сетка)</span>
+                                <span id="gridVal" class="text-orange-500">3x3</span>
+                            </div>
+                            <select id="gridSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-orange-500 outline-none appearance-none">
+                                <option value="1">1x1 (Без сетки)</option>
+                                <option value="2">2x2 (Быстро)</option>
+                                <option value="3" selected>3x3 (Оптимально)</option>
+                                <option value="4">4x4 (Детально)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2 uppercase tracking-tighter">
+                                <span>Формат сохранения</span>
+                            </div>
+                            <select id="saveFormat" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-orange-500 outline-none appearance-none">
+                                <option value="crop" selected>Крупный план (Портрет)</option>
+                                <option value="full">Полный кадр (Сцена)</option>
+                            </select>
+                        </div>
+
+                        <button id="startBtn" disabled class="w-full py-4 bg-orange-600 hover:bg-orange-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-black rounded-xl transition-all shadow-lg active:scale-95 uppercase tracking-widest text-xs">
+                            Запустить анализ
+                        </button>
+                    </div>
+                </div>
+
+                <div id="progressArea" class="hidden space-y-3">
+                    <div class="flex justify-between text-[10px] font-black uppercase text-slate-400">
+                        <span id="pStatus">Обработка...</span>
+                        <span id="pPercent">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                        <div id="pBar" class="h-full bg-gradient-to-r from-orange-600 to-amber-400 transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="bg-slate-800 p-2 rounded-lg text-center border border-slate-700/50">
+                            <span class="block text-[10px] text-slate-500 uppercase font-bold">Лиц найдено</span>
+                            <span id="countFaces" class="text-xl font-black text-orange-500">0</span>
+                        </div>
+                        <div class="bg-slate-800 p-2 rounded-lg text-center border border-slate-700/50">
+                            <span class="block text-[10px] text-slate-500 uppercase font-bold">Кадров</span>
+                            <span id="countFrames" class="text-xl font-black text-amber-500">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3">
+                <div class="bg-slate-800/20 rounded-3xl border border-slate-800/60 p-6 min-h-[600px] shadow-inner">
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
+                        <h2 class="text-xl font-black text-white flex items-center gap-3">
+                            <span class="p-2 bg-orange-500/10 text-orange-500 rounded-lg">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                            </span>
+                            Результаты экстракции
+                        </h2>
+                        <div class="flex flex-wrap gap-2">
+                            <div id="sharpControl" class="hidden flex items-center gap-3 px-4 py-1.5 bg-slate-900 rounded-lg border border-slate-700 mr-2">
+                                <span class="text-[10px] font-black uppercase text-slate-400 whitespace-nowrap">Порог резкости:</span>
+                                <input type="range" id="sharpThresholdSlider" min="0" max="500" step="1" value="80" class="w-48 sm:w-64 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                                <span id="sharpThresholdVal" class="text-[10px] font-mono font-bold text-orange-500 w-8 text-center bg-slate-950 p-1 rounded">80</span>
+                            </div>
+                            <button id="selectBlurryBtn" class="hidden px-4 py-2 bg-amber-600/20 hover:bg-amber-600 text-amber-500 hover:text-white text-[10px] font-black rounded-lg transition-all border border-amber-600/30 uppercase tracking-tighter">
+                                Выделить размытые
+                            </button>
+                            <button id="deleteSelectedBtn" class="hidden px-4 py-2 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white text-[10px] font-black rounded-lg transition-all border border-red-600/30 uppercase tracking-tighter">
+                                Удалить выбранные
+                            </button>
+                            <button id="downloadAllBtn" class="hidden px-4 py-2 bg-slate-700 hover:bg-orange-600 text-white text-[10px] font-black rounded-lg transition-all flex items-center gap-2 border border-slate-600 uppercase tracking-tighter">
+                                СКАЧАТЬ ВСЁ (ZIP)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="gallery" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                        <div id="galleryPlaceholder" class="col-span-full py-40 flex flex-col items-center justify-center text-slate-600 text-center">
+                            <div class="w-16 h-16 mb-4 border-4 border-slate-800 border-t-slate-700 rounded-full animate-spin hidden" id="loadingSpinner"></div>
+                            <p class="italic">Результаты появятся здесь...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <video id="hiddenVideo" class="hidden" muted></video>
+    <canvas id="procCanvas" class="hidden"></canvas>
+
+    <script>
+        const ui = {
+            videoInput: document.getElementById('videoInput'),
+            video: document.getElementById('hiddenVideo'),
+            startBtn: document.getElementById('startBtn'),
+            downloadAllBtn: document.getElementById('downloadAllBtn'),
+            selectBlurryBtn: document.getElementById('selectBlurryBtn'),
+            deleteSelectedBtn: document.getElementById('deleteSelectedBtn'),
+            sharpControl: document.getElementById('sharpControl'),
+            sharpSlider: document.getElementById('sharpThresholdSlider'),
+            sharpValDisplay: document.getElementById('sharpThresholdVal'),
+            gallery: document.getElementById('gallery'),
+            placeholder: document.getElementById('galleryPlaceholder'),
+            canvas: document.getElementById('procCanvas'),
+            pBar: document.getElementById('pBar'),
+            pPercent: document.getElementById('pPercent'),
+            pArea: document.getElementById('progressArea'),
+            pStatus: document.getElementById('pStatus'),
+            countFaces: document.getElementById('countFaces'),
+            countFrames: document.getElementById('countFrames'),
+            aiIndicator: document.getElementById('aiIndicator'),
+            confSlider: document.getElementById('confSlider'),
+            confVal: document.getElementById('confVal'),
+            gridSelect: document.getElementById('gridSelect'),
+            stepSelect: document.getElementById('stepSelect'),
+            saveFormat: document.getElementById('saveFormat'),
+            metaRes: document.getElementById('metaRes'),
+            metaDur: document.getElementById('metaDur'),
+            videoMeta: document.getElementById('videoMeta'),
+            spinner: document.getElementById('loadingSpinner')
+        };
+
+        let isModelLoaded = false;
+        let totalFaceCount = 0;
+
+        async function loadModels() {
+            const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                isModelLoaded = true;
+                ui.aiIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500"></span> СИСТЕМА ГОТОВА';
+                ui.aiIndicator.classList.replace('text-slate-400', 'text-green-500');
+            } catch (err) {
+                ui.aiIndicator.innerText = 'ОШИБКА МОДЕЛЕЙ';
+            }
+        }
+        loadModels();
+
+        ui.confSlider.oninput = (e) => ui.confVal.innerText = e.target.value;
+        
+        ui.sharpSlider.oninput = (e) => {
+            const threshold = parseInt(e.target.value);
+            ui.sharpValDisplay.innerText = threshold;
+            updateBlurrySelection(threshold);
+        };
+
+        function updateBlurrySelection(threshold) {
+            const cards = ui.gallery.querySelectorAll('.face-card');
+            cards.forEach(card => {
+                const score = parseFloat(card.dataset.sharpness);
+                const scoreBadge = card.querySelector('.score-text');
+                if (score < threshold) {
+                    card.classList.add('selected');
+                    scoreBadge.classList.replace('text-slate-400', 'text-red-400');
+                } else {
+                    card.classList.remove('selected');
+                    scoreBadge.classList.replace('text-red-400', 'text-slate-400');
+                }
+            });
+        }
+
+        ui.videoInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                ui.video.src = URL.createObjectURL(file);
+                ui.video.onloadedmetadata = () => {
+                    ui.videoMeta.classList.remove('hidden');
+                    ui.metaRes.innerText = `${ui.video.videoWidth}x${ui.video.videoHeight}`;
+                    ui.metaDur.innerText = `${Math.round(ui.video.duration)} сек.`;
+                    ui.startBtn.disabled = !isModelLoaded;
+                };
+            }
+        };
+
+        function getBlurriness(ctx, width, height) {
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+            const grayscale = new Float32Array(width * height);
+            for (let i = 0; i < data.length; i += 4) {
+                grayscale[i / 4] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+            }
+            const laplacian = [0, 1, 0, 1, -4, 1, 0, 1, 0];
+            let mean = 0, scores = [];
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    let res = 0;
+                    for (let ky = -1; ky <= 1; ky++) {
+                        for (let kx = -1; kx <= 1; kx++) {
+                            res += grayscale[(y + ky) * width + (x + kx)] * laplacian[(ky + 1) * 3 + (kx + 1)];
+                        }
+                    }
+                    scores.push(res);
+                    mean += res;
+                }
+            }
+            mean /= scores.length;
+            let variance = 0;
+            for (let i = 0; i < scores.length; i++) variance += Math.pow(scores[i] - mean, 2);
+            return variance / scores.length;
+        }
+
+        ui.startBtn.onclick = async () => {
+            ui.gallery.querySelectorAll('.face-card').forEach(el => el.remove());
+            ui.placeholder.classList.remove('hidden');
+            ui.spinner.classList.remove('hidden');
+            ui.pArea.classList.remove('hidden');
+            ui.startBtn.disabled = true;
+            ui.downloadAllBtn.classList.add('hidden');
+            ui.selectBlurryBtn.classList.add('hidden');
+            ui.deleteSelectedBtn.classList.add('hidden');
+            ui.sharpControl.classList.add('hidden');
+            
+            const confidence = parseFloat(ui.confSlider.value);
+            const gridCells = parseInt(ui.gridSelect.value);
+            const mode = ui.saveFormat.value;
+            const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: confidence });
+            
+            const v = ui.video;
+            const vw = v.videoWidth, vh = v.videoHeight;
+            const cellW = Math.floor(vw / gridCells), cellH = Math.floor(vh / gridCells);
+            
+            const ctx = ui.canvas.getContext('2d', { willReadFrequently: true });
+            ui.canvas.width = cellW; ui.canvas.height = cellH;
+
+            totalFaceCount = 0;
+            let frameCount = 0;
+            const step = parseFloat(ui.stepSelect.value);
+            
+            for (let time = 0; time < v.duration; time += step) {
+                v.currentTime = time;
+                await new Promise(r => v.onseeked = r);
+                frameCount++;
+
+                const fullFrame = document.createElement('canvas');
+                fullFrame.width = vw; fullFrame.height = vh;
+                fullFrame.getContext('2d').drawImage(v, 0, 0);
+
+                for (let row = 0; row < gridCells; row++) {
+                    for (let col = 0; col < gridCells; col++) {
+                        const startX = col * cellW, startY = row * cellH;
+                        ctx.drawImage(fullFrame, startX, startY, cellW, cellH, 0, 0, cellW, cellH);
+                        const detections = await faceapi.detectAllFaces(ui.canvas, detectorOptions);
+                        
+                        for (const detection of detections) {
+                            const box = detection.box;
+                            const faceA = document.createElement('canvas');
+                            faceA.width = 128; faceA.height = 128;
+                            faceA.getContext('2d').drawImage(fullFrame, startX + box.x, startY + box.y, box.width, box.height, 0, 0, 128, 128);
+                            const sharp = getBlurriness(faceA.getContext('2d'), 128, 128);
+
+                            let exportData;
+                            if (mode === 'crop') {
+                                const p = document.createElement('canvas'); p.width = 512; p.height = 512;
+                                const pad = box.width * 0.7;
+                                p.getContext('2d').drawImage(fullFrame, startX + box.x - pad, startY + box.y - pad, box.width + pad*2, box.height + pad*2, 0, 0, 512, 512);
+                                exportData = p.toDataURL('image/jpeg', 0.95);
+                            } else {
+                                exportData = fullFrame.toDataURL('image/jpeg', 0.85);
+                            }
+
+                            const prev = document.createElement('canvas'); prev.width = 200; prev.height = 200;
+                            prev.getContext('2d').drawImage(fullFrame, startX+box.x-20, startY+box.y-30, box.width+40, box.height+60, 0, 0, 200, 200);
+                            
+                            renderFace(prev.toDataURL('image/jpeg', 0.8), exportData, time, sharp);
+                            totalFaceCount++;
+                        }
+                    }
+                }
+                const pct = Math.round((time / v.duration) * 100);
+                ui.pBar.style.width = pct + '%';
+                ui.pPercent.innerText = pct + '%';
+                ui.countFaces.innerText = totalFaceCount;
+                ui.countFrames.innerText = frameCount;
+            }
+
+            ui.startBtn.disabled = false;
+            ui.spinner.classList.add('hidden');
+            if (totalFaceCount > 0) {
+                ui.placeholder.classList.add('hidden');
+                ui.downloadAllBtn.classList.remove('hidden');
+                ui.selectBlurryBtn.classList.remove('hidden');
+                ui.deleteSelectedBtn.classList.remove('hidden');
+                ui.sharpControl.classList.remove('hidden');
+            }
+        };
+
+        function renderFace(preview, exportData, timestamp, score) {
+            const card = document.createElement('div');
+            card.className = "face-card relative group bg-slate-800 rounded-xl overflow-hidden border-2 border-slate-700 shadow-lg transition-all cursor-pointer";
+            card.dataset.sharpness = score;
+            card.onclick = () => card.classList.toggle('selected');
+            
+            const timeStr = `${Math.floor(timestamp / 60)}:${(timestamp % 60).toFixed(1).padStart(4, '0')}`;
+            const currentThreshold = parseInt(ui.sharpSlider.value);
+            if (score < currentThreshold) card.classList.add('selected');
+
+            card.innerHTML = `
+                <img src="${preview}" class="w-full aspect-square object-cover pointer-events-none">
+                <div class="select-badge hidden absolute top-2 right-2 w-6 h-6 bg-orange-500 rounded-full items-center justify-center text-white shadow-lg">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"></path></svg>
+                </div>
+                <div class="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/90 to-transparent flex justify-between items-end pointer-events-none">
+                    <span class="text-[9px] font-black text-orange-400 font-mono">${timeStr}s</span>
+                    <span class="score-text text-[8px] ${score < currentThreshold ? 'text-red-400' : 'text-slate-400'} font-mono">ID:${Math.round(score)}</span>
+                </div>
+                <div class="actions absolute inset-0 bg-orange-600/20 opacity-0 transition-opacity flex items-center justify-center gap-2 pointer-events-none">
+                     <button onclick="event.stopPropagation(); downloadSingle('${exportData}', '${timeStr}')" class="p-2 bg-white text-orange-600 rounded-full shadow-lg pointer-events-auto">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="3" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                     </button>
+                </div>
+            `;
+            ui.gallery.appendChild(card);
+        }
+
+        ui.selectBlurryBtn.onclick = () => {
+            const threshold = parseInt(ui.sharpSlider.value);
+            const cards = ui.gallery.querySelectorAll('.face-card');
+            cards.forEach(card => {
+                if (parseFloat(card.dataset.sharpness) < threshold) {
+                    card.classList.add('selected');
+                }
+            });
+        };
+
+        ui.deleteSelectedBtn.onclick = () => {
+            const selected = ui.gallery.querySelectorAll('.face-card.selected');
+            selected.forEach(card => {
+                card.remove();
+                totalFaceCount--;
+            });
+            ui.countFaces.innerText = totalFaceCount;
+            if (ui.gallery.querySelectorAll('.face-card').length === 0) {
+                ui.placeholder.classList.remove('hidden');
+                ui.downloadAllBtn.classList.add('hidden');
+                ui.selectBlurryBtn.classList.add('hidden');
+                ui.deleteSelectedBtn.classList.add('hidden');
+                ui.sharpControl.classList.add('hidden');
+            }
+        };
+
+        window.downloadSingle = (data, time) => {
+            const link = document.createElement('a');
+            link.href = data;
+            link.download = `Face_${time.replace(':', '-')}.jpg`;
+            link.click();
+        };
+
+        ui.downloadAllBtn.onclick = async () => {
+            const zip = new JSZip();
+            const cards = ui.gallery.querySelectorAll('.face-card');
+            ui.downloadAllBtn.innerText = "СЖАТИЕ...";
+            cards.forEach((card, i) => {
+                const imgBtn = card.querySelector('button');
+                const imgData = imgBtn.getAttribute('onclick').match(/'([^']+)'/)[1];
+                zip.file(`Face_${i}.jpg`, imgData.split(',')[1], {base64: true});
+            });
+            const content = await zip.generateAsync({type: "blob"});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(content);
+            link.download = `Capture_Archive.zip`;
+            link.click();
+            ui.downloadAllBtn.innerText = "СКАЧАТЬ ВСЁ (ZIP)";
+        };
+    </script>
+</body>
+</html>
